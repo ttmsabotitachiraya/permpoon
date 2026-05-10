@@ -138,14 +138,14 @@ pub async fn get_service_history(
 }
 
 fn passes_freq(
-    freq_type: &Option<String>,
+    freq_type: &str,
     freq_value: &Option<i64>,
     history: &[ServiceHistoryRow],
     process_date: &str,
 ) -> bool {
-    match freq_type.as_deref() {
-        None | Some("") => true,
-        Some("days") => {
+    match freq_type {
+        "" => true,
+        "days" => {
             if let Some(last) = history.first() {
                 let last_date =
                     NaiveDate::parse_from_str(&last.vstdate[..10], "%Y-%m-%d").unwrap_or_default();
@@ -157,7 +157,7 @@ fn passes_freq(
                 true
             }
         }
-        Some("months") => {
+        "months" => {
             if let Some(last) = history.first() {
                 let last_date =
                     NaiveDate::parse_from_str(&last.vstdate[..10], "%Y-%m-%d").unwrap_or_default();
@@ -170,7 +170,7 @@ fn passes_freq(
                 true
             }
         }
-        Some("years") => {
+        "years" => {
             if let Some(last) = history.first() {
                 let last_date =
                     NaiveDate::parse_from_str(&last.vstdate[..10], "%Y-%m-%d").unwrap_or_default();
@@ -182,7 +182,7 @@ fn passes_freq(
                 true
             }
         }
-        Some("per_week") => {
+        "per_week" => {
             let target = NaiveDate::parse_from_str(process_date, "%Y-%m-%d").unwrap_or_default();
             let days_from_monday = target.weekday().num_days_from_monday() as i64;
             let monday = target - Duration::days(days_from_monday);
@@ -197,7 +197,7 @@ fn passes_freq(
                 .count() as i64;
             count < freq_value.unwrap_or(0)
         }
-        Some("per_year") => {
+        "per_year" => {
             let target = NaiveDate::parse_from_str(process_date, "%Y-%m-%d").unwrap_or_default();
             let fy_start_year = if target.month() >= 10 {
                 target.year()
@@ -216,7 +216,7 @@ fn passes_freq(
                 .count() as i64;
             count < freq_value.unwrap_or(0)
         }
-        Some("total_limit") => (history.len() as i64) < freq_value.unwrap_or(0),
+        "total_limit" => (history.len() as i64) < freq_value.unwrap_or(0),
         _ => true,
     }
 }
@@ -363,10 +363,12 @@ pub async fn get_recommendations(
         // check freq
         let freq_type: Option<String> = row.get("freq_type");
         let freq_value: Option<i64> = row.get("freq_value");
-        if freq_type.is_some() {
-            let history = get_service_history(config.clone(), hn.clone(), icode.clone()).await?;
-            if !passes_freq(&freq_type, &freq_value, &history, &process_date) {
-                continue;
+        if let Some(ft) = &freq_type {
+            if !ft.is_empty() {
+                let history = get_service_history(config.clone(), hn.clone(), icode.clone()).await?;
+                if !passes_freq(ft, &freq_value, &history, &process_date) {
+                    continue;
+                }
             }
         }
 
@@ -504,47 +506,48 @@ pub async fn search_patients_with_recommendations(
         return Ok(vec![]);
     }
 
-    // 2. Get all HNs and their all-time icodes (all dates)
+// 2. Get all HNs and their icodes for TODAY only (to skip if already received today)
     let hns: Vec<String> = patient_rows.iter().map(|r| r.get::<String, _>("hn")).collect();
     let hn_list = hns.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
-    let all_icodes_sql = format!(
+    let today_icodes_sql = format!(
         "SELECT v.hn, o.icode FROM opitemrece o JOIN ovst v ON v.vn = o.vn WHERE v.hn IN ({}) AND DATE(v.vstdate) = DATE(?)",
         hn_list
     );
-    let mut all_q = sqlx::query(&all_icodes_sql);
+    let mut today_q = sqlx::query(&today_icodes_sql);
     for hn in &hns {
-        all_q = all_q.bind(hn);
+        today_q = today_q.bind(hn);
     }
-    all_q = all_q.bind(&process_date);
-    let all_rows = all_q
+    today_q = today_q.bind(&process_date);
+    let today_rows = today_q
         .fetch_all(&mysql_pool_ref)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Group all icodes by hn
-    let mut all_icodes_map: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
-    for row in &all_rows {
+    // Group today's icodes by hn (for skipping)
+    let mut today_icodes_map: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+    for row in &today_rows {
         let hn: String = row.get("hn");
         let icode: String = row.get("icode");
-        all_icodes_map.entry(hn).or_default().insert(icode);
+        today_icodes_map.entry(hn).or_default().insert(icode);
     }
 
-    mysql_pool_ref.close().await;
-
-    // 3. Load icode_config from SQLite (only enabled ones)
+    // 3. Get ALL service history for ALL hns (for freq check) - single batch query
+    let mut all_history_map: std::collections::HashMap<String, Vec<ServiceHistoryRow>> = std::collections::HashMap::new();
+    
+    // Get unique icodes from icode_config first
     let data_dir = app_handle.path().app_data_dir().expect("app data dir");
-    let db_path = format!("{}/setting.db", data_dir.to_string_lossy());
-    let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}?mode=rwc", db_path))
+    let setting_db_path = format!("{}/setting.db", data_dir.to_string_lossy());
+    let sqlite_opts = SqliteConnectOptions::from_str(&format!("sqlite://{}?mode=ro", setting_db_path))
         .map_err(|e| e.to_string())?;
     let sqlite_pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(opts)
+        .max_connections(2)
+        .connect_with(sqlite_opts)
         .await
         .map_err(|e| e.to_string())?;
 
     let icode_rows = sqlx::query(
-        "SELECT c.id, c.icode, c.service_name, c.department, c.is_enabled, c.age_min, c.age_max,
+        "SELECT c.icode, c.service_name, c.department, c.age_min, c.age_max,
                 c.gender_restrict, c.freq_type, c.freq_value,
                 GROUP_CONCAT(m.pttype_group_id) as group_ids
          FROM icode_config c
@@ -561,9 +564,48 @@ pub async fn search_patients_with_recommendations(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Get all unique icodes from config
+    let all_icode_list: Vec<String> = icode_rows.iter().map(|r| r.get::<String, _>("icode")).collect();
+    
+    // Batch query: get all service history for all patients for all these icodes
+    if !all_icode_list.is_empty() && !hns.is_empty() {
+        let icode_placeholders = all_icode_list.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let history_sql = format!(
+            "SELECT v.hn, o.icode, DATE_FORMAT(v.vstdate, '%Y-%m-%d') as vstdate 
+             FROM opitemrece o 
+             JOIN ovst v ON v.vn = o.vn 
+             WHERE v.hn IN ({}) AND o.icode IN ({}) 
+             ORDER BY v.hn, v.vstdate DESC",
+            hn_list, icode_placeholders
+        );
+        
+        let mut history_q = sqlx::query(&history_sql);
+        for hn in &hns {
+            history_q = history_q.bind(hn);
+        }
+        for icode in &all_icode_list {
+            history_q = history_q.bind(icode);
+        }
+        
+        let history_rows = history_q
+            .fetch_all(&mysql_pool_ref)
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        // Group by hn -> icode -> history
+        for row in &history_rows {
+            let hn: String = row.get("hn");
+            let icode: String = row.get("icode");
+            let vstdate: String = row.get("vstdate");
+            all_history_map
+                .entry(hn)
+                .or_default()
+                .push(ServiceHistoryRow { icode, vstdate });
+        }
+    }
+
     // Map: hipdata_code -> group id (เช่น "U" -> ["1","2"])
     let mut pttype_group_ids_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    // Map: id -> alias (สำหรับแสดงผล)
     let mut group_id_to_alias: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for row in &pg_rows {
         let id: String = row.get::<i32, _>("id").to_string();
@@ -599,8 +641,8 @@ pub async fn search_patients_with_recommendations(
         let age = calculate_age(&dob, &process_date);
         let vn: String = row.get("vn");
 
-        let all_icodes = all_icodes_map.get(&hn).cloned().unwrap_or_default();
-let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_or_default();
+        let today_icodes = today_icodes_map.get(&hn).cloned().unwrap_or_default();
+        let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_or_default();
 
         let mut recommendations: Vec<RecommendationItem> = Vec::new();
 
@@ -609,10 +651,7 @@ let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_o
             let service_name: String = icode_row.get("service_name");
 
             // Skip if already received today
-            if all_icodes.contains(&icode) {
-                if hn == "5901939" {
-                    println!("[DEBUG] HN 5901939: SKIP (in today) icode={}", icode);
-                }
+            if today_icodes.contains(&icode) {
                 continue;
             }
 
@@ -658,10 +697,17 @@ let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_o
                 }
             }
 
-            // Freq check (simplified - skip for now as it requires historical data)
+            // Freq check - use pre-loaded history
+            let freq_value: Option<i64> = icode_row.get("freq_value");
             if let Some(ft) = &freq_type {
-                if ft == "once" || ft == "yearly" || ft == "monthly" {
-                    // Would need historical check - skip for speed
+                if !ft.is_empty() {
+                    let history_for_icode: Vec<ServiceHistoryRow> = all_history_map
+                        .get(&hn)
+                        .map(|h| h.iter().filter(|s| s.icode == icode).cloned().collect())
+                        .unwrap_or_default();
+                    if !passes_freq(ft, &freq_value, &history_for_icode, &process_date) {
+                        continue;
+                    }
                 }
             }
 

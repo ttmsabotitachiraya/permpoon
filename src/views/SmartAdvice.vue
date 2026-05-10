@@ -130,16 +130,6 @@ async function selectPatient(p: PatientInfo) {
     await loadRecommendations();
 }
 
-function clearSearch() {
-    searchQuery.value = "";
-    patient.value = null;
-    searchResults.value = [];
-    recommendations.value = [];
-    selectedIcodes.value = new Set();
-    searchError.value = "";
-    recError.value = "";
-}
-
 async function loadRecommendations() {
     if (!patient.value) return;
     isLoadingRec.value = true;

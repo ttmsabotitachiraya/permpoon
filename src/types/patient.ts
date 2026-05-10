@@ -11,6 +11,7 @@ export interface PatientInfo {
   dob: string
   sex: 'M' | 'F' | string
   age: number
+  vn: string
   recommendations: RecommendationItem[];
 }
 

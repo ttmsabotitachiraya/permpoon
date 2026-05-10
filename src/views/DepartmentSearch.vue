@@ -157,6 +157,7 @@ async function doSearch() {
             dob: p.dob,
             sex: p.sex,
             age: p.age,
+            vn: p.vn,
             recommendations: p.recommendations || [],
         }));
 

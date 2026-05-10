@@ -495,23 +495,24 @@ async function printSlip() {
                         >HN / เลขบัตรประชาชน / ชื่อ-นามสกุล</label
                     >
                     <div class="search-input-row">
-                        <input
-                            v-model="searchQuery"
-                            type="text"
-                            class="form-input bar-input"
-                            placeholder="เช่น 0000001, 1234567890123, สมชาย ใจดี"
-                            @keydown.enter="doSearch"
-                        />
-                        <button
-                            v-if="
-                                searchQuery || patient || searchResults.length
-                            "
-                            class="btn btn-ghost btn-sm clear-btn"
-                            @click="clearSearch"
-                            title="ล้างข้อมูล"
-                        >
-                            <X :size="15" />
-                        </button>
+                        <div class="input-with-clear" style="flex: 1;">
+                            <input
+                                v-model="searchQuery"
+                                type="text"
+                                class="form-input bar-input"
+                                style="width: 100%;"
+                                placeholder="เช่น 0000001, 1234567890123, สมชาย ใจดี"
+                                @keydown.enter="doSearch"
+                            />
+                            <button
+                                v-if="searchQuery"
+                                class="clear-btn-icon"
+                                @click="searchQuery = ''"
+                                title="ล้างข้อมูล"
+                            >
+                                <X :size="14" />
+                            </button>
+                        </div>
                         <button
                             class="btn btn-primary btn-sm"
                             @click="doSearch"
@@ -971,6 +972,34 @@ async function printSlip() {
 }
 
 /* ===== Clear button ===== */
+.input-with-clear {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.input-with-clear .bar-input {
+    padding-right: 32px;
+}
+.clear-btn-icon {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: #e2e8f0;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #64748b;
+    transition: all 0.15s;
+}
+.clear-btn-icon:hover {
+    background: #cbd5e1;
+    color: #475569;
+}
+
 .clear-btn {
     color: var(--steel);
     border: 1px solid var(--hairline);

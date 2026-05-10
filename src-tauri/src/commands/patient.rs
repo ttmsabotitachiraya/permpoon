@@ -447,6 +447,7 @@ pub struct PatientWithRecs {
     pub dob: String,
     pub sex: String,
     pub age: i32,
+    pub vn: String,
     pub recommendations: Vec<RecommendationItem>,
 }
 
@@ -464,12 +465,12 @@ pub async fn search_patients_with_recommendations(
     let patient_rows = if depcodes.is_empty() {
         sqlx::query(
             "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
-                    pt.name AS pttype_name, pt.hipdata_code
+                    pt.name AS pttype_name, pt.hipdata_code, v.vn
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
              JOIN pttype pt ON pt.pttype = p.pttype
              WHERE DATE(v.vstdate) = DATE(?)
-             ORDER BY p.fname, p.lname
+             ORDER BY v.vn DESC
              LIMIT 500",
         )
         .bind(&process_date)
@@ -480,12 +481,12 @@ pub async fn search_patients_with_recommendations(
         let placeholders = depcodes.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!(
             "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
-                    pt.name AS pttype_name, pt.hipdata_code
+                    pt.name AS pttype_name, pt.hipdata_code, v.vn
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
              JOIN pttype pt ON pt.pttype = p.pttype
              WHERE DATE(v.vstdate) = DATE(?) AND v.depcode IN ({})
-             ORDER BY p.fname, p.lname
+             ORDER BY v.vn DESC
              LIMIT 500",
             placeholders
         );
@@ -508,13 +509,14 @@ pub async fn search_patients_with_recommendations(
     let hn_list = hns.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
     let all_icodes_sql = format!(
-        "SELECT v.hn, o.icode FROM opitemrece o JOIN ovst v ON v.vn = o.vn WHERE v.hn IN ({})",
+        "SELECT v.hn, o.icode FROM opitemrece o JOIN ovst v ON v.vn = o.vn WHERE v.hn IN ({}) AND DATE(v.vstdate) = DATE(?)",
         hn_list
     );
     let mut all_q = sqlx::query(&all_icodes_sql);
     for hn in &hns {
         all_q = all_q.bind(hn);
     }
+    all_q = all_q.bind(&process_date);
     let all_rows = all_q
         .fetch_all(&mysql_pool_ref)
         .await
@@ -595,9 +597,10 @@ pub async fn search_patients_with_recommendations(
             other => other.to_string(),
         };
         let age = calculate_age(&dob, &process_date);
+        let vn: String = row.get("vn");
 
         let all_icodes = all_icodes_map.get(&hn).cloned().unwrap_or_default();
-        let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_or_default();
+let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_or_default();
 
         let mut recommendations: Vec<RecommendationItem> = Vec::new();
 
@@ -607,6 +610,9 @@ pub async fn search_patients_with_recommendations(
 
             // Skip if already received today
             if all_icodes.contains(&icode) {
+                if hn == "5901939" {
+                    println!("[DEBUG] HN 5901939: SKIP (in today) icode={}", icode);
+                }
                 continue;
             }
 
@@ -617,7 +623,7 @@ pub async fn search_patients_with_recommendations(
             let freq_type: Option<String> = icode_row.get("freq_type");
             let group_ids_str: Option<String> = icode_row.get("group_ids");
 
-            // Age filter
+// Age filter
             if let Some(min) = age_min {
                 if age < min {
                     continue;
@@ -664,11 +670,6 @@ pub async fn search_patients_with_recommendations(
                 .filter_map(|gid| group_id_to_alias.get(gid).cloned())
                 .collect();
 
-            // DEBUG: log for HN 4702404
-            if hn == "4702404" {
-                println!("[DEBUG] HN 4702404 PASSED filter: icode={}, service={}", icode, service_name);
-            }
-
             recommendations.push(RecommendationItem {
                 icode,
                 service_name,
@@ -688,6 +689,7 @@ pub async fn search_patients_with_recommendations(
             dob,
             sex,
             age,
+            vn,
             recommendations,
         });
     }

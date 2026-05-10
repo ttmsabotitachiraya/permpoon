@@ -801,6 +801,7 @@ const TruncatedText = defineComponent({
 .freq-type-select {
     flex: 1 1 320px;
     min-width: 260px;
+    text-align: center;
 }
 .freq-value-input {
     width: 96px;

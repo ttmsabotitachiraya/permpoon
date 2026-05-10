@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
+import { writeTextFile } from '@tauri-apps/plugin-fs'
 import { useIcodeStore } from '../../stores/icodeStore'
 import {
   Download, Upload, FileJson, CheckSquare, Square, AlertCircle, Check
@@ -46,16 +48,19 @@ function toggleIcode(id: number) {
   else selectedIcodeIds.value.push(id)
 }
 
-function downloadJson(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+async function downloadJson(content: string, filename: string) {
+  try {
+    const filePath = await save({
+      defaultPath: filename,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (filePath) {
+      await writeTextFile(filePath, content)
+    }
+  } catch (e) {
+    console.error('Download error:', e)
+    throw e
+  }
 }
 
 async function handleExport() {
@@ -68,7 +73,7 @@ async function handleExport() {
     }
     const json = await invoke<string>('export_settings', { options })
     const date = new Date().toISOString().slice(0, 10)
-    downloadJson(json, `setting_export_${date}.json`)
+    await downloadJson(json, `setting_export_${date}.json`)
   } catch (e: unknown) {
     exportError.value = String(e)
   } finally {

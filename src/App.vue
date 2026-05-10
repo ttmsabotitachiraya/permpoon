@@ -224,6 +224,27 @@ onMounted(async () => {
                                 </div>
                             </RouterLink>
                             <RouterLink
+                                to="/settings/export-import"
+                                class="dropdown-item"
+                                :class="{
+                                    active: route.path.startsWith(
+                                        '/settings/export-import',
+                                    ),
+                                }"
+                            >
+                                <span class="dropdown-icon"
+                                    ><ArrowLeftRight :size="15"
+                                /></span>
+                                <div>
+                                    <div class="dropdown-item-title">
+                                        ส่งออก / นำเข้า
+                                    </div>
+                                    <div class="dropdown-item-desc">
+                                        สำรองและกู้คืนการตั้งค่า
+                                    </div>
+                                </div>
+                            </RouterLink>
+                            <RouterLink
                                 to="/settings/pttype"
                                 class="dropdown-item"
                                 :class="{
@@ -262,27 +283,6 @@ onMounted(async () => {
                                     </div>
                                     <div class="dropdown-item-desc">
                                         รายการรหัสบริการ icode
-                                    </div>
-                                </div>
-                            </RouterLink>
-                            <RouterLink
-                                to="/settings/export-import"
-                                class="dropdown-item"
-                                :class="{
-                                    active: route.path.startsWith(
-                                        '/settings/export-import',
-                                    ),
-                                }"
-                            >
-                                <span class="dropdown-icon"
-                                    ><ArrowLeftRight :size="15"
-                                /></span>
-                                <div>
-                                    <div class="dropdown-item-title">
-                                        ส่งออก / นำเข้า
-                                    </div>
-                                    <div class="dropdown-item-desc">
-                                        สำรองและกู้คืนการตั้งค่า
                                     </div>
                                 </div>
                             </RouterLink>

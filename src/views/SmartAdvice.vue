@@ -292,13 +292,14 @@ async function printSlip() {
     const printCss = `
       @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
 
-      @page { size: A5 portrait; margin: 12mm 14mm; }
+      @page { size: A5 portrait; margin: 10mm 12mm; }
 
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
       body {
         font-family: 'Sarabun', 'TH SarabunNew', Arial, sans-serif;
-        font-size: 12pt;
+        font-size: 14pt;
+        line-height: 1.5;
         color: #1e293b;
         background: #ffffff;
         -webkit-print-color-adjust: exact;
@@ -320,7 +321,7 @@ async function printSlip() {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 6pt;
+        margin-bottom: 8pt;
       }
       .slip-logo-wrap {
         display: flex;
@@ -329,20 +330,20 @@ async function printSlip() {
       }
       .slip-brand { display: flex; flex-direction: column; line-height: 1.2; }
       .slip-brand-name {
-        font-size: 18pt;
+        font-size: 20pt;
         font-weight: 700;
         color: #ea580c;
         letter-spacing: -0.3pt;
       }
       .slip-brand-tagline {
-        font-size: 8pt;
+        font-size: 9pt;
         color: #94a3b8;
         margin-top: 1pt;
       }
       .slip-title-wrap { text-align: right; }
       .slip-title {
         display: inline-block;
-        font-size: 14pt;
+        font-size: 16pt;
         font-weight: 700;
         color: #ea580c;
         background: #fff7ed;
@@ -356,50 +357,50 @@ async function printSlip() {
         height: 2.5pt;
         background: linear-gradient(90deg, #f97316 0%, #fbbf24 60%, #fff7ed 100%);
         border-radius: 2pt;
-        margin: 6pt 0 10pt;
+        margin: 8pt 0 12pt;
       }
 
       /* ── Sections ── */
-      .slip-section { margin-bottom: 10pt; }
+      .slip-section { margin-bottom: 12pt; }
       .slip-section-label {
-        font-size: 10pt;
+        font-size: 12pt;
         font-weight: 700;
         color: #ea580c;
         text-transform: uppercase;
         letter-spacing: 0.4pt;
         border-left: 3pt solid #f97316;
         padding-left: 6pt;
-        margin-bottom: 5pt;
+        margin-bottom: 6pt;
       }
 
       /* ── Info box ── */
       .slip-info-box {
         border: 1pt solid #e2e8f0;
         border-radius: 6pt;
-        padding: 7pt 10pt;
+        padding: 8pt 12pt;
         background: #fafbfc;
       }
       .slip-row {
         display: flex;
         gap: 16pt;
-        margin-bottom: 4pt;
+        margin-bottom: 6pt;
       }
       .slip-field {
         display: flex;
         align-items: baseline;
-        gap: 5pt;
-        margin-bottom: 4pt;
+        gap: 6pt;
+        margin-bottom: 6pt;
       }
       .slip-field.half { flex: 1; margin-bottom: 0; }
       .slip-lbl {
-        font-size: 9.5pt;
+        font-size: 11pt;
         font-weight: 600;
         color: #64748b;
         white-space: nowrap;
       }
       .slip-lbl::after { content: ':'; }
       .slip-val {
-        font-size: 11.5pt;
+        font-size: 13pt;
         font-weight: 500;
         color: #0f172a;
       }
@@ -407,46 +408,46 @@ async function printSlip() {
         font-family: 'Courier New', monospace;
         font-weight: 700;
         color: #ea580c;
-        font-size: 12pt;
+        font-size: 14pt;
       }
 
       /* ── Table ── */
       .slip-table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 10.5pt;
+        font-size: 12pt;
       }
       .slip-table thead tr {
         background: #fff7ed;
       }
       .slip-table th {
-        padding: 5pt 7pt;
-        font-size: 10pt;
+        padding: 6pt 8pt;
+        font-size: 12pt;
         font-weight: 700;
         color: #c2410c;
         text-align: left;
         border: 1pt solid #fed7aa;
       }
       .slip-table td {
-        padding: 5pt 7pt;
+        padding: 6pt 8pt;
         border: 1pt solid #e2e8f0;
         color: #1e293b;
         vertical-align: middle;
       }
       .slip-table tbody tr:nth-child(even) td { background: #fff7ed; }
-      .th-num, .td-num  { width: 28pt; text-align: center; }
-      .th-dept, .td-dept { width: 72pt; }
-      .th-note, .td-note { width: 54pt; }
+      .th-num, .td-num  { width: 30pt; text-align: center; }
+      .th-dept, .td-dept { width: 80pt; }
+      .th-note, .td-note { width: 60pt; }
       .th-service, .td-service { }
 
       /* ── Footer ── */
-      .slip-footer { margin-top: 14pt; text-align: center; }
+      .slip-footer { margin-top: 16pt; text-align: center; }
       .slip-footer-line {
         height: 1pt;
         background: #e2e8f0;
-        margin-bottom: 5pt;
+        margin-bottom: 6pt;
       }
-      .slip-footer p { font-size: 9pt; color: #94a3b8; }
+      .slip-footer p { font-size: 10pt; color: #94a3b8; }
     `;
 
     const printContainer = document.createElement("div");

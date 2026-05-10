@@ -1,0 +1,5 @@
+/Users/achiraya/Desktop/permpoon7.0.1/src-tauri/target-check/debug/build/objc2-exception-helper-6bc4258ca76e6f79/build_script_build-6bc4258ca76e6f79.d: /Users/achiraya/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/objc2-exception-helper-0.1.1/build.rs
+
+/Users/achiraya/Desktop/permpoon7.0.1/src-tauri/target-check/debug/build/objc2-exception-helper-6bc4258ca76e6f79/build_script_build-6bc4258ca76e6f79: /Users/achiraya/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/objc2-exception-helper-0.1.1/build.rs
+
+/Users/achiraya/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/objc2-exception-helper-0.1.1/build.rs:

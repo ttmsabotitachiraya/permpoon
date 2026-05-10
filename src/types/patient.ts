@@ -1,3 +1,5 @@
+import type { RecommendationItem } from "./icode";
+
 export interface PatientInfo {
   hn: string
   fname: string
@@ -9,6 +11,7 @@ export interface PatientInfo {
   dob: string
   sex: 'M' | 'F' | string
   age: number
+  recommendations: RecommendationItem[];
 }
 
 export interface PatientQuery {

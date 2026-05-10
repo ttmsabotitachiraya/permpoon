@@ -256,7 +256,7 @@ pub async fn get_recommendations(
     .await
     .map_err(|e| e.to_string())?;
     mysql_pool_ref.close().await;
-    let today_icodes: std::collections::HashSet<String> = today_rows
+    let all_icodes: std::collections::HashSet<String> = today_rows
         .iter()
         .map(|r| r.get::<String, _>("icode"))
         .collect();
@@ -317,7 +317,7 @@ pub async fn get_recommendations(
 
     for row in &icode_rows {
         let icode: String = row.get("icode");
-        if today_icodes.contains(&icode) {
+        if all_icodes.contains(&icode) {
             continue;
         }
 
@@ -503,30 +503,29 @@ pub async fn search_patients_with_recommendations(
         return Ok(vec![]);
     }
 
-    // 2. Get all HNs and their today icodes in one query
+    // 2. Get all HNs and their all-time icodes (all dates)
     let hns: Vec<String> = patient_rows.iter().map(|r| r.get::<String, _>("hn")).collect();
     let hn_list = hns.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
-    let today_icodes_sql = format!(
-        "SELECT v.hn, o.icode FROM opitemrece o JOIN ovst v ON v.vn = o.vn WHERE v.hn IN ({}) AND DATE(v.vstdate) = DATE(?)",
+    let all_icodes_sql = format!(
+        "SELECT v.hn, o.icode FROM opitemrece o JOIN ovst v ON v.vn = o.vn WHERE v.hn IN ({})",
         hn_list
     );
-    let mut today_q = sqlx::query(&today_icodes_sql);
+    let mut all_q = sqlx::query(&all_icodes_sql);
     for hn in &hns {
-        today_q = today_q.bind(hn);
+        all_q = all_q.bind(hn);
     }
-    today_q = today_q.bind(&process_date);
-    let today_rows = today_q
+    let all_rows = all_q
         .fetch_all(&mysql_pool_ref)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Group today's icodes by hn
-    let mut today_icodes_map: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
-    for row in &today_rows {
+    // Group all icodes by hn
+    let mut all_icodes_map: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+    for row in &all_rows {
         let hn: String = row.get("hn");
         let icode: String = row.get("icode");
-        today_icodes_map.entry(hn).or_default().insert(icode);
+        all_icodes_map.entry(hn).or_default().insert(icode);
     }
 
     mysql_pool_ref.close().await;
@@ -597,23 +596,20 @@ pub async fn search_patients_with_recommendations(
         };
         let age = calculate_age(&dob, &process_date);
 
-        let today_icodes = today_icodes_map.get(&hn).cloned().unwrap_or_default();
+        let all_icodes = all_icodes_map.get(&hn).cloned().unwrap_or_default();
         let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_or_default();
-
-        // ถ้าไม่มี group ให้ใช้ pttype โดยตรง (ไม่ filter group)
-        let patient_has_group = !pttype_group_ids.is_empty();
 
         let mut recommendations: Vec<RecommendationItem> = Vec::new();
 
         for icode_row in &icode_rows {
             let icode: String = icode_row.get("icode");
+            let service_name: String = icode_row.get("service_name");
 
             // Skip if already received today
-            if today_icodes.contains(&icode) {
+            if all_icodes.contains(&icode) {
                 continue;
             }
 
-            let service_name: String = icode_row.get("service_name");
             let department: Option<String> = icode_row.get("department");
             let age_min: Option<i32> = icode_row.get("age_min");
             let age_max: Option<i32> = icode_row.get("age_max");
@@ -646,20 +642,15 @@ pub async fn search_patients_with_recommendations(
                 }
             }
 
-            // Group filter: ถ้า icode มี group และ ผู้ป่วยมี group ให้เช็ค
+            // Group filter: ถ้า icode มี group กำหนด ต้องเช็คว่าผู้ป่วยมี group ที่ตรงกัน
             if let Some(gids) = &group_ids_str {
                 if !gids.is_empty() {
-                    // ถ้าผู้ป่วยไม่มี group ที่กำหนด ให้ข้าม (ยกเว้น icode ที่ไม่กำหนด group)
-                    if patient_has_group {
-                        let has_group = pttype_group_ids.iter().any(|gid| gids.contains(gid));
-                        if !has_group {
-                            continue;
-                        }
+                    let has_group = pttype_group_ids.iter().any(|gid| gids.contains(gid));
+                    if !has_group {
+                        continue;
                     }
                 }
             }
-
-            // ถ้าไม่มี group filter และ patient ไม่มี group ในระบบ ให้แสดง
 
             // Freq check (simplified - skip for now as it requires historical data)
             if let Some(ft) = &freq_type {
@@ -672,6 +663,11 @@ pub async fn search_patients_with_recommendations(
                 .iter()
                 .filter_map(|gid| group_id_to_alias.get(gid).cloned())
                 .collect();
+
+            // DEBUG: log for HN 4702404
+            if hn == "4702404" {
+                println!("[DEBUG] HN 4702404 PASSED filter: icode={}, service={}", icode, service_name);
+            }
 
             recommendations.push(RecommendationItem {
                 icode,

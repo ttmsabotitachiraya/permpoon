@@ -41,7 +41,6 @@ const patients = ref<PatientInfo[]>([]);
 const patientQuery = ref("");
 const searchError = ref("");
 const isSearching = ref(false);
-const recCache = ref<Record<string, RecommendationItem[]>>({});
 const selectedPatient = ref<PatientInfo | null>(null);
 const recommendations = ref<RecommendationItem[]>([]);
 const selectedIcodes = ref<Set<string>>(new Set());
@@ -56,6 +55,11 @@ onMounted(async () => {
 
 function getPttypeAlias(p: PatientInfo) {
     return p.pttype_name || "-";
+}
+
+function hasRecommendations(hn: string): boolean {
+    const patient = patients.value.find(p => p.hn === hn);
+    return !!(patient && patient.recommendations && patient.recommendations.length > 0);
 }
 
 function getPttypeName(p: PatientInfo) {
@@ -130,7 +134,6 @@ async function doSearch() {
     selectedPatient.value = null;
     recommendations.value = [];
     selectedIcodes.value = new Set();
-    recCache.value = {};
 
     try {
         const depcodes = useDefaultDepartment.value ? [] : enabledDepcodes.value;
@@ -143,7 +146,6 @@ async function doSearch() {
             },
         );
 
-        // Convert to PatientInfo format and store recommendations
         patients.value = results.map(p => ({
             hn: p.hn,
             fname: p.fname,
@@ -155,12 +157,8 @@ async function doSearch() {
             dob: p.dob,
             sex: p.sex,
             age: p.age,
+            recommendations: p.recommendations || [],
         }));
-
-        // Store recommendations in cache
-        for (const p of results) {
-            recCache.value[p.hn] = p.recommendations || [];
-        }
 
         if (results.length === 0) {
             searchError.value = "ไม่พบผู้ป่วยในวันที่เลือก";
@@ -173,30 +171,11 @@ async function doSearch() {
 }
 
 async function openRecommendations(patient: PatientInfo) {
-    const cachedRecs = recCache.value[patient.hn];
-    if (cachedRecs === undefined || cachedRecs.length === 0) {
-        return;
-    }
-
     selectedPatient.value = patient;
-    recommendations.value = [];
+    recommendations.value = patient.recommendations || [];
     selectedIcodes.value = new Set();
     recError.value = "";
-    isLoadingRec.value = true;
     showRecModal.value = true;
-
-    try {
-        const items = await invoke<RecommendationItem[]>("get_recommendations", {
-            config: connStore.config,
-            hn: patient.hn,
-            processDate: processDate.value,
-        });
-        recommendations.value = items;
-    } catch (e: any) {
-        recError.value = String(e);
-    } finally {
-        isLoadingRec.value = false;
-    }
 }
 
 function toggleSelect(icode: string) {
@@ -514,6 +493,10 @@ async function handlePrintFromModal() {
     await printSlip();
     closeRecModal();
 }
+
+function clearPatientQuery() {
+    patientQuery.value = "";
+}
 </script>
 
 <template>
@@ -543,12 +526,22 @@ async function handlePrintFromModal() {
                 <div style="margin-left: auto; display: flex; gap: 8px; align-items: flex-end;">
                     <div class="search-query-wrap">
                         <label class="bar-label">ค้นหาผู้ป่วย (HN / CID / ชื่อ)</label>
-                        <input
-                            v-model="patientQuery"
-                            type="text"
-                            class="form-input bar-input"
-                            placeholder="เช่น 0000001, 1234567890123, สมชาย"
-                        />
+                        <div class="input-with-clear">
+                            <input
+                                v-model="patientQuery"
+                                type="text"
+                                class="form-input bar-input"
+                                placeholder="เช่น 0000001, 1234567890123, สมชาย"
+                            />
+                            <button
+                                v-if="patientQuery"
+                                class="clear-btn"
+                                @click="clearPatientQuery"
+                                title="ล้างข้อมูล"
+                            >
+                                <X :size="14" />
+                            </button>
+                        </div>
                     </div>
                     <div
                         v-if="enabledDepcodes.length > 0"
@@ -590,7 +583,7 @@ async function handlePrintFromModal() {
                             <th>อายุ</th>
                             <th>เพศ</th>
                             <th>สิทธิ์</th>
-                            <th></th>
+                            <th style="width: 160px"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -606,8 +599,16 @@ async function handlePrintFromModal() {
                             </td>
                             <td>
                                 <button
+                                    v-if="hasRecommendations(p.hn)"
                                     class="btn-recommend btn-sm"
                                     @click="openRecommendations(p)"
+                                >
+                                    แนะนำบริการ ({{ p.recommendations?.length || 0 }})
+                                </button>
+                                <button
+                                    v-else
+                                    class="btn-recommend-disabled btn-sm"
+                                    disabled
                                 >
                                     แนะนำบริการ
                                 </button>
@@ -1077,7 +1078,9 @@ async function handlePrintFromModal() {
 .btn-recommend {
     display: inline-flex;
     align-items: center;
-    padding: 5px 12px;
+    justify-content: center;
+    padding: 5px 14px;
+    min-width: 120px;
     font-size: 13px;
     font-weight: 500;
     color: white;
@@ -1087,6 +1090,7 @@ async function handlePrintFromModal() {
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(249,115,22,0.35);
     transition: all 0.15s ease;
+    white-space: nowrap;
 }
 .btn-recommend:disabled {
     opacity: 0.5;
@@ -1098,7 +1102,9 @@ async function handlePrintFromModal() {
 .btn-recommend-disabled {
     display: inline-flex;
     align-items: center;
-    padding: 5px 12px;
+    justify-content: center;
+    padding: 5px 14px;
+    min-width: 120px;
     font-size: 13px;
     font-weight: 500;
     color: #94a3b8;
@@ -1107,6 +1113,7 @@ async function handlePrintFromModal() {
     border-radius: 6px;
     cursor: not-allowed;
     opacity: 0.7;
+    white-space: nowrap;
 }
 
 .btn-no-rec {
@@ -1131,5 +1138,33 @@ async function handlePrintFromModal() {
     background: #f8fafc;
     border: 1px dashed #cbd5e1;
     border-radius: 6px;
+}
+
+.input-with-clear {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.input-with-clear .bar-input {
+    padding-right: 32px;
+}
+.clear-btn {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: #e2e8f0;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #64748b;
+    transition: all 0.15s;
+}
+.clear-btn:hover {
+    background: #cbd5e1;
+    color: #475569;
 }
 </style>

@@ -21,8 +21,21 @@ async fn mysql_pool(config: &DbConfig) -> Result<sqlx::MySqlPool, String> {
 }
 
 fn calculate_age(dob: &str, on_date: &str) -> i32 {
-    let birth = NaiveDate::parse_from_str(dob, "%Y-%m-%d").unwrap_or_default();
-    let target = NaiveDate::parse_from_str(on_date, "%Y-%m-%d").unwrap_or_default();
+    let dob = dob.trim();
+    if dob.is_empty() {
+        return 0;
+    }
+    
+    let birth = match NaiveDate::parse_from_str(dob, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return 0,
+    };
+
+    let target = match NaiveDate::parse_from_str(on_date, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => return 0,
+    };
+    
     let mut age = target.year() - birth.year();
     if (target.month(), target.day()) < (birth.month(), birth.day()) {
         age -= 1;
@@ -31,7 +44,7 @@ fn calculate_age(dob: &str, on_date: &str) -> i32 {
 }
 
 fn row_to_patient(r: &sqlx::mysql::MySqlRow, process_date: &str) -> PatientInfo {
-    let dob: String = r.try_get::<String, _>("dob").unwrap_or_default();
+    let dob: String = r.try_get::<String, _>("birthday").unwrap_or_default();
     let age = calculate_age(&dob, process_date);
     let sex_raw: String = r.try_get::<String, _>("sex").unwrap_or_default();
     let sex = match sex_raw.as_str() {
@@ -60,7 +73,7 @@ pub async fn lookup_patient(
     process_date: String,
 ) -> Result<Vec<PatientInfo>, String> {
     let pool = mysql_pool(&config).await?;
-    let base_select = "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
+    let base_select = "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, CAST(p.birthday AS CHAR) AS birthday, p.sex,
                        pt.name AS pttype_name, pt.hipdata_code
                        FROM patient p
                        INNER JOIN pttype pt ON pt.pttype = p.pttype";
@@ -394,7 +407,7 @@ pub async fn search_patients_by_department(
 
     let rows = if depcodes.is_empty() {
         sqlx::query(
-            "SELECT DISTINCT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
+            "SELECT DISTINCT p.hn, p.fname, p.lname, p.cid, p.pttype, CAST(p.birthday AS CHAR) AS birthday, p.sex,
                     pt.name AS pttype_name, pt.hipdata_code
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
@@ -411,7 +424,7 @@ pub async fn search_patients_by_department(
         // สร้าง placeholders สำหรับ IN clause
         let placeholders = depcodes.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!(
-            "SELECT DISTINCT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
+            "SELECT DISTINCT p.hn, p.fname, p.lname, p.cid, p.pttype, CAST(p.birthday AS CHAR) AS birthday, p.sex,
                     pt.name AS pttype_name, pt.hipdata_code
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
@@ -466,7 +479,7 @@ pub async fn search_patients_with_recommendations(
     // 1. Get patients first
     let patient_rows = if depcodes.is_empty() {
         sqlx::query(
-            "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
+            "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, CAST(p.birthday AS CHAR) AS birthday, p.sex,
                     pt.name AS pttype_name, pt.hipdata_code, v.vn
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
@@ -482,7 +495,7 @@ pub async fn search_patients_with_recommendations(
     } else {
         let placeholders = depcodes.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!(
-            "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, p.birthday AS dob, p.sex,
+            "SELECT p.hn, p.fname, p.lname, p.cid, p.pttype, CAST(p.birthday AS CHAR) AS birthday, p.sex,
                     pt.name AS pttype_name, pt.hipdata_code, v.vn
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
@@ -631,8 +644,8 @@ pub async fn search_patients_with_recommendations(
         let pttype: String = row.get("pttype");
         let pttype_name: String = row.get("pttype_name");
         let hipdata_code: String = row.get("hipdata_code");
-        let dob: String = row.try_get("dob").unwrap_or_default();
-        let sex_raw: String = row.try_get("sex").unwrap_or_default();
+        let dob: String = row.get("birthday");
+        let sex_raw: String = row.get("sex");
         let sex = match sex_raw.as_str() {
             "1" | "M" | "m" => "M".to_string(),
             "2" | "F" | "f" => "F".to_string(),

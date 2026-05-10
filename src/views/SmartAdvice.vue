@@ -36,7 +36,14 @@ function getPttypeAlias(p: PatientInfo) {
 
 // State
 const searchQuery = ref("");
-const processDate = ref(new Date().toISOString().slice(0, 10));
+const getTodayDate = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+const processDate = ref(getTodayDate());
 const patient = ref<PatientInfo | null>(null);
 const searchResults = ref<PatientInfo[]>([]);
 const recommendations = ref<RecommendationItem[]>([]);

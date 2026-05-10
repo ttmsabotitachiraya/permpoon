@@ -37,7 +37,14 @@ const connStore = useConnectionStore();
 const pttypeStore = usePttypeStore();
 const deptStore = useDepartmentStore();
 
-const processDate = ref(new Date().toISOString().split("T")[0]);
+const getTodayDate = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+const processDate = ref(getTodayDate());
 const patients = ref<PatientInfo[]>([]);
 const patientQuery = ref("");
 const searchError = ref("");

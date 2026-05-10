@@ -474,7 +474,7 @@ pub async fn get_all_icode_configs(app: tauri::AppHandle) -> Result<serde_json::
          FROM icode_config c
          LEFT JOIN icode_pttype_map m ON m.icode_config_id = c.id
          GROUP BY c.id
-         ORDER BY c.icode",
+         ORDER BY c.department, c.service_name",
     )
     .fetch_all(&pool)
     .await

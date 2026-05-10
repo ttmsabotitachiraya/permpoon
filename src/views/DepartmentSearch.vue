@@ -72,6 +72,10 @@ function getPttypeName(p: PatientInfo) {
     );
 }
 
+function getPttypeTooltip(p: PatientInfo) {
+    return p.pttype_name || p.pttype;
+}
+
 function formatSex(sex: string): string {
     const s = sex.toUpperCase();
     if (s === "M" || s === "1") return "ชาย";
@@ -597,7 +601,7 @@ function clearPatientQuery() {
                             <td>{{ p.fname }} {{ p.lname }}</td>
                             <td>{{ p.age }} ปี</td>
                             <td>{{ formatSex(p.sex) }}</td>
-                            <td :title="getPttypeName(p)">
+                            <td :title="getPttypeTooltip(p)">
                                 <span class="pttype-name">{{ getPttypeName(p) }}</span>
                             </td>
                             <td>

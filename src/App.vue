@@ -173,7 +173,7 @@ onMounted(async () => {
 
         <!-- ───────────── FOOTER BAR ───────────── -->
         <footer class="footer-bar">
-            <span class="footer-copy">&copy; 2026 โรงพยาบาลสระโบสถ์</span>
+            <span class="footer-copy">&copy; 2026 rxdevman.com</span>
             <div class="footer-right">
                 <!-- Settings Dropdown -->
                 <div class="settings-dropdown-wrapper">

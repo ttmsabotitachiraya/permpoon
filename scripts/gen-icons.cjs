@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+"use strict";
+
+const { Resvg } = require("@resvg/resvg-js");
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
+
+const ROOT = path.resolve(__dirname, "..");
+const ICONS_DIR = path.join(ROOT, "src-tauri", "icons");
+const SOURCE_PNG = path.join(ICONS_DIR, "icon.png");
+
+const ICON_SVG = `<svg width="1024" height="1024" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradBottom" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fdba74;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="gradTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fff7ed;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <path d="M5 55 L50 72 L95 55 L50 38 Z" fill="url(#gradBottom)"/>
+  <path d="M5 55 L5 70 L50 87 L50 72 Z" fill="url(#gradBottom)"/>
+  <path d="M95 55 L95 70 L50 87 L50 72 Z" fill="url(#gradBottom)"/>
+  
+  <path d="M5 20 L50 37 L95 20 L50 3 Z" fill="url(#gradTop)"/>
+  <path d="M5 20 L5 35 L50 52 L50 37 Z" fill="url(#gradTop)"/>
+  <path d="M95 20 L95 35 L50 52 L50 37 Z" fill="url(#gradTop)"/>
+  
+  <text x="50" y="98" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#ea580c" font-weight="900" letter-spacing="2">P O O N</text>
+</svg>`;
+
+(async () => {
+  try {
+    console.log("Rendering SVG → icon.png (1024×1024)…");
+
+    const resvg = new Resvg(ICON_SVG, {
+      fitTo: { mode: "width", value: 1024 },
+      imageRendering: 1,
+      shapeRendering: 2,
+      textRendering: 2,
+    });
+
+    const pngBuffer = resvg.render().asPng();
+
+    fs.mkdirSync(ICONS_DIR, { recursive: true });
+    fs.writeFileSync(SOURCE_PNG, pngBuffer);
+    console.log(`Saved ${path.basename(SOURCE_PNG)} (${Math.round(pngBuffer.length / 1024)} KB)`);
+
+    console.log("Running tauri icon generator…");
+    execSync(`npx tauri icon "${SOURCE_PNG}"`, {
+      cwd: ROOT,
+      stdio: "inherit",
+      timeout: 120000,
+    });
+
+    console.log("All icons generated successfully in src-tauri/icons/");
+  } catch (err) {
+    console.error("Process failed:", err.message || err);
+    process.exit(1);
+  }
+})();

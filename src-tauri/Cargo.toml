@@ -1,6 +1,6 @@
 [package]
-name = "permpoon"
-version = "0.1.0"
+name = "PermPoon"
+version = "7.0.1"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

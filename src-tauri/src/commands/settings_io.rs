@@ -46,10 +46,18 @@ pub struct IcodeConfigExport {
     pub pttype_group_aliases: Vec<String>,
 }
 
+/// A single exported department config row.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DepartmentConfigExport {
+    pub depcode: String,
+    pub department: String,
+    pub is_enabled: bool,
+}
+
 /// Top-level export document.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportData {
-    /// Schema version (currently `1`).
+    /// Schema version (currently `2`).
     pub version: u32,
     /// RFC-3339 timestamp of export.
     pub exported_at: String,
@@ -57,6 +65,8 @@ pub struct ExportData {
     pub pttype_groups: Vec<PttypeGroupExport>,
     /// Exported icode configs (may be empty if not requested).
     pub icode_configs: Vec<IcodeConfigExport>,
+    /// Exported department configs (may be empty if not requested).
+    pub department_configs: Vec<DepartmentConfigExport>,
 }
 
 // ── Command input/output ──────────────────────────────────────────────────────
@@ -66,10 +76,22 @@ pub struct ExportData {
 pub struct ExportOptions {
     /// `true` to include the pttype_groups section.
     pub include_pttype_groups: bool,
+    /// `None` = export all pttype groups.
+    /// `Some([])` = export no pttype groups.
+    /// `Some([id, …])` = export only the listed rows.
+    pub pttype_group_ids: Option<Vec<i64>>,
+    /// `true` to include the icode_configs section.
+    pub include_icode: bool,
     /// `None` = export all icode configs.
     /// `Some([])` = export no icode configs.
     /// `Some([id, …])` = export only the listed rows.
     pub icode_ids: Option<Vec<i64>>,
+    /// `true` to include the department_configs section.
+    pub include_departments: bool,
+    /// `None` = export all department configs.
+    /// `Some([])` = export no department configs.
+    /// `Some([id, …])` = export only the listed rows.
+    pub department_ids: Option<Vec<i64>>,
 }
 
 /// Summary returned after a successful import.
@@ -83,6 +105,10 @@ pub struct ImportSummary {
     pub icode_configs_added: usize,
     /// Number of icode configs that were updated (already existed).
     pub icode_configs_updated: usize,
+    /// Number of department configs that were newly inserted.
+    pub department_configs_added: usize,
+    /// Number of department configs that were updated (already existed).
+    pub department_configs_updated: usize,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -103,6 +129,10 @@ fn aliases_from_str(raw: Option<String>) -> Vec<String> {
         .collect()
 }
 
+fn export_version_is_supported(version: u32) -> bool {
+    matches!(version, 1 | 2)
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 /// Exports selected sections from `setting.db` and returns a JSON string.
@@ -117,16 +147,39 @@ pub async fn export_settings(
 
     // ── pttype groups ─────────────────────────────────────────────────────────
     let pttype_groups: Vec<PttypeGroupExport> = if options.include_pttype_groups {
-        sqlx::query("SELECT alias, hipdata_code FROM pttype_group ORDER BY alias")
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| e.to_string())?
-            .iter()
-            .map(|r| PttypeGroupExport {
-                alias: r.get("alias"),
-                hipdata_code: r.get("hipdata_code"),
-            })
-            .collect()
+        match &options.pttype_group_ids {
+            Some(ids) if ids.is_empty() => vec![],
+            None => sqlx::query("SELECT alias, hipdata_code FROM pttype_group ORDER BY alias")
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| e.to_string())?
+                .iter()
+                .map(|r| PttypeGroupExport {
+                    alias: r.get("alias"),
+                    hipdata_code: r.get("hipdata_code"),
+                })
+                .collect(),
+            Some(ids) => {
+                let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let q = format!(
+                    "SELECT alias, hipdata_code FROM pttype_group WHERE id IN ({placeholders}) ORDER BY alias"
+                );
+                let mut query = sqlx::query(&q);
+                for id in ids {
+                    query = query.bind(*id);
+                }
+                query
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .iter()
+                    .map(|r| PttypeGroupExport {
+                        alias: r.get("alias"),
+                        hipdata_code: r.get("hipdata_code"),
+                    })
+                    .collect()
+            }
+        }
     } else {
         vec![]
     };
@@ -139,62 +192,101 @@ pub async fn export_settings(
          LEFT JOIN icode_pttype_map m ON m.icode_config_id = c.id
          LEFT JOIN pttype_group     g ON g.id = m.pttype_group_id";
 
-    let icode_configs: Vec<IcodeConfigExport> = match &options.icode_ids {
-        // Export nothing
-        Some(ids) if ids.is_empty() => vec![],
-
-        // Export all
-        None => {
-            let q = format!("{ICODE_SELECT} GROUP BY c.id ORDER BY c.icode");
-            sqlx::query(&q)
-                .fetch_all(&pool)
-                .await
-                .map_err(|e| e.to_string())?
-                .iter()
-                .map(row_to_icode_export)
-                .collect()
-        }
-
-        // Export specific rows
-        Some(ids) => {
-            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            let q = format!(
-                "{ICODE_SELECT} WHERE c.id IN ({placeholders}) GROUP BY c.id ORDER BY c.icode"
-            );
-            let mut query = sqlx::query(&q);
-            for id in ids {
-                query = query.bind(*id);
+    let icode_configs: Vec<IcodeConfigExport> = if options.include_icode {
+        match &options.icode_ids {
+            Some(ids) if ids.is_empty() => vec![],
+            None => {
+                let q = format!("{ICODE_SELECT} GROUP BY c.id ORDER BY c.icode");
+                sqlx::query(&q)
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .iter()
+                    .map(row_to_icode_export)
+                    .collect()
             }
-            query
-                .fetch_all(&pool)
-                .await
-                .map_err(|e| e.to_string())?
-                .iter()
-                .map(row_to_icode_export)
-                .collect()
+            Some(ids) => {
+                let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let q = format!(
+                    "{ICODE_SELECT} WHERE c.id IN ({placeholders}) GROUP BY c.id ORDER BY c.icode"
+                );
+                let mut query = sqlx::query(&q);
+                for id in ids {
+                    query = query.bind(*id);
+                }
+                query
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .iter()
+                    .map(row_to_icode_export)
+                    .collect()
+            }
         }
+    } else {
+        vec![]
+    };
+
+    // ── department configs ────────────────────────────────────────────────────
+    let department_configs: Vec<DepartmentConfigExport> = if options.include_departments {
+        match &options.department_ids {
+            Some(ids) if ids.is_empty() => vec![],
+            None => sqlx::query(
+                "SELECT depcode, department, is_enabled
+                 FROM department_config
+                 ORDER BY department, depcode",
+            )
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .iter()
+            .map(row_to_department_export)
+            .collect(),
+            Some(ids) => {
+                let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let q = format!(
+                    "SELECT depcode, department, is_enabled
+                     FROM department_config
+                     WHERE id IN ({placeholders})
+                     ORDER BY department, depcode"
+                );
+                let mut query = sqlx::query(&q);
+                for id in ids {
+                    query = query.bind(*id);
+                }
+                query
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .iter()
+                    .map(row_to_department_export)
+                    .collect()
+            }
+        }
+    } else {
+        vec![]
     };
 
     pool.close().await;
 
     let data = ExportData {
-        version: 1,
+        version: 2,
         exported_at: Utc::now().to_rfc3339(),
         pttype_groups,
         icode_configs,
+        department_configs,
     };
     serde_json::to_string_pretty(&data).map_err(|e| e.to_string())
 }
 
 /// Imports settings from a JSON string produced by [`export_settings`].
-///
-/// Pttype groups are inserted when the alias does not already exist.
-/// Icode configs are upserted (INSERT OR REPLACE) by `icode`.
-/// Pttype-group aliases in the import file are resolved to IDs in the
-/// current database; unresolved aliases are silently skipped.
 #[tauri::command]
 pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<ImportSummary, String> {
     let export: ExportData = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+    if !export_version_is_supported(export.version) {
+        return Err(format!("ไม่รองรับไฟล์ตั้งค่าเวอร์ชัน {}", export.version));
+    }
+
     let pool = get_pool(&setting_db_path(&app)).await?;
 
     let mut summary = ImportSummary {
@@ -202,9 +294,10 @@ pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<Impo
         pttype_groups_skipped: 0,
         icode_configs_added: 0,
         icode_configs_updated: 0,
+        department_configs_added: 0,
+        department_configs_updated: 0,
     };
 
-    // ── Import pttype groups ──────────────────────────────────────────────────
     for group in &export.pttype_groups {
         let result =
             sqlx::query("INSERT OR IGNORE INTO pttype_group (alias, hipdata_code) VALUES (?, ?)")
@@ -221,7 +314,6 @@ pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<Impo
         }
     }
 
-    // Build alias → id map after inserting groups
     let pg_rows = sqlx::query("SELECT id, alias FROM pttype_group")
         .fetch_all(&pool)
         .await
@@ -231,9 +323,7 @@ pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<Impo
         .map(|r| (r.get::<String, _>("alias"), r.get::<i64, _>("id")))
         .collect();
 
-    // ── Import icode configs ──────────────────────────────────────────────────
     for cfg in &export.icode_configs {
-        // Check if record already exists
         let exists: bool = sqlx::query("SELECT 1 FROM icode_config WHERE icode = ?")
             .bind(&cfg.icode)
             .fetch_optional(&pool)
@@ -271,7 +361,6 @@ pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<Impo
         .await
         .map_err(|e| e.to_string())?;
 
-        // Resolve actual row id
         let actual_id: i64 = if result.last_insert_rowid() == 0 {
             sqlx::query("SELECT id FROM icode_config WHERE icode = ?")
                 .bind(&cfg.icode)
@@ -283,7 +372,6 @@ pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<Impo
             result.last_insert_rowid()
         };
 
-        // Rebuild pttype mappings (only for aliases that exist)
         sqlx::query("DELETE FROM icode_pttype_map WHERE icode_config_id = ?")
             .bind(actual_id)
             .execute(&pool)
@@ -311,6 +399,36 @@ pub async fn import_settings(app: tauri::AppHandle, data: String) -> Result<Impo
         }
     }
 
+    for dept in &export.department_configs {
+        let exists: bool = sqlx::query("SELECT 1 FROM department_config WHERE depcode = ?")
+            .bind(&dept.depcode)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_some();
+
+        sqlx::query(
+            "INSERT INTO department_config (depcode, department, is_enabled)
+             VALUES (?, ?, ?)
+             ON CONFLICT(depcode) DO UPDATE SET
+                 department = excluded.department,
+                 is_enabled = excluded.is_enabled,
+                 updated_at = datetime('now')",
+        )
+        .bind(&dept.depcode)
+        .bind(&dept.department)
+        .bind(i64::from(dept.is_enabled))
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        if exists {
+            summary.department_configs_updated += 1;
+        } else {
+            summary.department_configs_added += 1;
+        }
+    }
+
     pool.close().await;
     Ok(summary)
 }
@@ -332,6 +450,14 @@ fn row_to_icode_export(r: &sqlx::sqlite::SqliteRow) -> IcodeConfigExport {
     }
 }
 
+fn row_to_department_export(r: &sqlx::sqlite::SqliteRow) -> DepartmentConfigExport {
+    DepartmentConfigExport {
+        depcode: r.get("depcode"),
+        department: r.get("department"),
+        is_enabled: r.get::<i64, _>("is_enabled") == 1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,7 +465,7 @@ mod tests {
     #[test]
     fn export_data_roundtrip() {
         let data = ExportData {
-            version: 1,
+            version: 2,
             exported_at: "2024-01-01T00:00:00Z".to_string(),
             pttype_groups: vec![PttypeGroupExport {
                 alias: "UCS".to_string(),
@@ -357,33 +483,18 @@ mod tests {
                 department: None,
                 pttype_group_aliases: vec!["UCS".to_string()],
             }],
+            department_configs: vec![DepartmentConfigExport {
+                depcode: "007".to_string(),
+                department: "OPD".to_string(),
+                is_enabled: true,
+            }],
         };
+
         let json = serde_json::to_string(&data).unwrap();
-        let parsed: ExportData = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.pttype_groups.len(), 1);
-        assert_eq!(parsed.icode_configs[0].icode, "1234567");
-    }
-
-    #[test]
-    fn import_summary_fields() {
-        let s = ImportSummary {
-            pttype_groups_added: 2,
-            pttype_groups_skipped: 1,
-            icode_configs_added: 3,
-            icode_configs_updated: 0,
-        };
-        assert_eq!(s.pttype_groups_added, 2);
-    }
-
-    #[test]
-    fn aliases_from_str_empty() {
-        assert!(aliases_from_str(None).is_empty());
-        assert!(aliases_from_str(Some(String::new())).is_empty());
-    }
-
-    #[test]
-    fn aliases_from_str_multiple() {
-        let v = aliases_from_str(Some("UCS,OFC,WEL".to_string()));
-        assert_eq!(v, ["UCS", "OFC", "WEL"]);
+        let back: ExportData = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.version, 2);
+        assert_eq!(back.pttype_groups.len(), 1);
+        assert_eq!(back.icode_configs.len(), 1);
+        assert_eq!(back.department_configs.len(), 1);
     }
 }

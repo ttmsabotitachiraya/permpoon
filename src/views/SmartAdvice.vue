@@ -16,6 +16,7 @@ import {
 } from "lucide-vue-next";
 import type { PatientInfo } from "../types/patient";
 import type { RecommendationItem } from "../types/icode";
+import { createRecommendationSlipPdfBase64 } from "../utils/recommendationSlipPdf";
 
 const connStore = useConnectionStore();
 const pttypeStore = usePttypeStore();
@@ -39,8 +40,8 @@ const searchQuery = ref("");
 const getTodayDate = () => {
     const d = new Date();
     const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
 };
 const processDate = ref(getTodayDate());
@@ -185,288 +186,36 @@ const sortedRecommendations = computed(() => {
     });
 });
 
-async function printSlip() {
-    if (selectedItems.value.length === 0) return;
-    const p = patient.value!;
+function buildSlipInput() {
+    if (!patient.value || selectedItems.value.length === 0) return null;
+    const p = patient.value;
+    return {
+        patient: {
+            hn: p.hn,
+            fname: p.fname,
+            lname: p.lname,
+        },
+        items: selectedItems.value,
+        processDateText: formatDate(processDate.value),
+        pttypeText: getPttypeAlias(p),
+    };
+}
 
-    const tableRows = selectedItems.value
-        .map(
-            (item, i) => `
-        <tr>
-            <td class="td-num">${i + 1}</td>
-            <td class="td-service">${item.service_name}</td>
-            <td class="td-dept">${item.department || "-"}</td>
-            <td class="td-note"></td>
-        </tr>`,
-        )
-        .join("");
+async function openSlipForPrinting() {
+    const input = buildSlipInput();
+    if (!input) return;
 
-    const bodyContent = `
-    <div class="slip-page">
-
-      <div class="slip-header">
-        <div class="slip-logo-wrap">
-          <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="plg1" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" style="stop-color:#f97316;stop-opacity:1"/>
-                <stop offset="100%" style="stop-color:#fdba74;stop-opacity:1"/>
-              </linearGradient>
-              <linearGradient id="plg2" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1"/>
-                <stop offset="100%" style="stop-color:#fff7ed;stop-opacity:1"/>
-              </linearGradient>
-            </defs>
-            <path d="M5 55 L50 72 L95 55 L50 38 Z" fill="url(#plg1)"/>
-            <path d="M5 55 L5 70 L50 87 L50 72 Z" fill="url(#plg1)"/>
-            <path d="M95 55 L95 70 L50 87 L50 72 Z" fill="url(#plg1)"/>
-            <path d="M5 20 L50 37 L95 20 L50 3 Z" fill="url(#plg2)"/>
-            <path d="M5 20 L5 35 L50 52 L50 37 Z" fill="url(#plg2)"/>
-            <path d="M95 20 L95 35 L50 52 L50 37 Z" fill="url(#plg2)"/>
-            <text x="50" y="98" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#ea580c" font-weight="900" letter-spacing="2">P O O N</text>
-          </svg>
-          <div class="slip-brand">
-            <span class="slip-brand-name">PermPoon</span>
-            <span class="slip-brand-tagline">แนะนำบริการเพิ่มพูลรายได้</span>
-          </div>
-        </div>
-        <div class="slip-title-wrap">
-          <div class="slip-title">ใบแนะนำบริการ</div>
-        </div>
-      </div>
-
-      <div class="slip-divider"></div>
-
-      <div class="slip-section">
-        <div class="slip-section-label">ข้อมูลส่วนตัว</div>
-        <div class="slip-info-box">
-          <div class="slip-row">
-            <div class="slip-field half">
-              <span class="slip-lbl">HN</span>
-              <span class="slip-val mono">${p.hn}</span>
-            </div>
-            <div class="slip-field half">
-              <span class="slip-lbl">วันที่</span>
-              <span class="slip-val">${formatDate(processDate.value)}</span>
-            </div>
-          </div>
-          <div class="slip-field">
-            <span class="slip-lbl">ชื่อ-นามสกุล</span>
-            <span class="slip-val">${p.fname} ${p.lname}</span>
-          </div>
-          <div class="slip-field" style="margin-bottom:0">
-            <span class="slip-lbl">สิทธิการรักษา</span>
-            <span class="slip-val">${getPttypeAlias(p)}</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="slip-section">
-        <div class="slip-section-label">บริการที่แนะนำ</div>
-        <table class="slip-table">
-          <thead>
-            <tr>
-              <th class="th-num">ลำดับ</th>
-              <th class="th-service">บริการ</th>
-              <th class="th-dept">แผนก</th>
-              <th class="th-note">หมายเหตุ</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="slip-footer">
-        <div class="slip-footer-line"></div>
-        <p>กรุณานำใบนี้ไปรับบริการที่จุดให้บริการ</p>
-      </div>
-
-    </div>
-    `;
-
-    const printCss = `
-      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
-
-      @page { size: A5 portrait; margin: 10mm 12mm; }
-
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-      body {
-        font-family: 'Sarabun', 'TH SarabunNew', Arial, sans-serif;
-        font-size: 14pt;
-        line-height: 1.5;
-        color: #1e293b;
-        background: #ffffff;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-
-      #__print_slip__ { display: none; }
-
-      @media print {
-        #app { display: none !important; }
-        #__print_slip__ { display: block !important; }
-      }
-
-      /* ── Page wrapper ── */
-      .slip-page { width: 100%; }
-
-      /* ── Header ── */
-      .slip-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 8pt;
-      }
-      .slip-logo-wrap {
-        display: flex;
-        align-items: center;
-        gap: 8pt;
-      }
-      .slip-brand { display: flex; flex-direction: column; line-height: 1.2; }
-      .slip-brand-name {
-        font-size: 20pt;
-        font-weight: 700;
-        color: #ea580c;
-        letter-spacing: -0.3pt;
-      }
-      .slip-brand-tagline {
-        font-size: 9pt;
-        color: #94a3b8;
-        margin-top: 1pt;
-      }
-      .slip-title-wrap { text-align: right; }
-      .slip-title {
-        display: inline-block;
-        font-size: 16pt;
-        font-weight: 700;
-        color: #ea580c;
-        background: #fff7ed;
-        border: 1.5pt solid #f97316;
-        border-radius: 6pt;
-        padding: 4pt 12pt;
-      }
-
-      /* ── Divider ── */
-      .slip-divider {
-        height: 2.5pt;
-        background: linear-gradient(90deg, #f97316 0%, #fbbf24 60%, #fff7ed 100%);
-        border-radius: 2pt;
-        margin: 8pt 0 12pt;
-      }
-
-      /* ── Sections ── */
-      .slip-section { margin-bottom: 12pt; }
-      .slip-section-label {
-        font-size: 12pt;
-        font-weight: 700;
-        color: #ea580c;
-        text-transform: uppercase;
-        letter-spacing: 0.4pt;
-        border-left: 3pt solid #f97316;
-        padding-left: 6pt;
-        margin-bottom: 6pt;
-      }
-
-      /* ── Info box ── */
-      .slip-info-box {
-        border: 1pt solid #e2e8f0;
-        border-radius: 6pt;
-        padding: 8pt 12pt;
-        background: #fafbfc;
-      }
-      .slip-row {
-        display: flex;
-        gap: 16pt;
-        margin-bottom: 6pt;
-      }
-      .slip-field {
-        display: flex;
-        align-items: baseline;
-        gap: 6pt;
-        margin-bottom: 6pt;
-      }
-      .slip-field.half { flex: 1; margin-bottom: 0; }
-      .slip-lbl {
-        font-size: 11pt;
-        font-weight: 600;
-        color: #64748b;
-        white-space: nowrap;
-      }
-      .slip-lbl::after { content: ':'; }
-      .slip-val {
-        font-size: 13pt;
-        font-weight: 500;
-        color: #0f172a;
-      }
-      .mono {
-        font-family: 'Courier New', monospace;
-        font-weight: 700;
-        color: #ea580c;
-        font-size: 14pt;
-      }
-
-      /* ── Table ── */
-      .slip-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12pt;
-      }
-      .slip-table thead tr {
-        background: #fff7ed;
-      }
-      .slip-table th {
-        padding: 6pt 8pt;
-        font-size: 12pt;
-        font-weight: 700;
-        color: #c2410c;
-        text-align: left;
-        border: 1pt solid #fed7aa;
-      }
-      .slip-table td {
-        padding: 6pt 8pt;
-        border: 1pt solid #e2e8f0;
-        color: #1e293b;
-        vertical-align: middle;
-      }
-      .slip-table tbody tr:nth-child(even) td { background: #fff7ed; }
-      .th-num, .td-num  { width: 30pt; text-align: center; }
-      .th-dept, .td-dept { width: 80pt; }
-      .th-note, .td-note { width: 60pt; }
-      .th-service, .td-service { }
-
-      /* ── Footer ── */
-      .slip-footer { margin-top: 16pt; text-align: center; }
-      .slip-footer-line {
-        height: 1pt;
-        background: #e2e8f0;
-        margin-bottom: 6pt;
-      }
-      .slip-footer p { font-size: 10pt; color: #94a3b8; }
-    `;
-
-    const printContainer = document.createElement("div");
-    printContainer.id = "__print_slip__";
-    printContainer.innerHTML = bodyContent;
-
-    const printStyleEl = document.createElement("style");
-    printStyleEl.id = "__print_style__";
-    printStyleEl.innerHTML = printCss;
-
-    document.head.appendChild(printStyleEl);
-    document.body.appendChild(printContainer);
-    // รอให้ DOM render ก่อน
-    await new Promise<void>((r) => setTimeout(r, 80));
+    recError.value = "";
     try {
-        await invoke("plugin:webview|print");
-    } finally {
-        // หน่วงเวลาก่อนลบ เพื่อให้ Tauri webview capture เนื้อหาได้ครบ
-        setTimeout(() => {
-            printStyleEl.remove();
-            printContainer.remove();
-        }, 3000);
+        const pdfBase64 = await createRecommendationSlipPdfBase64(input);
+        await invoke("open_temp_pdf_with_viewer", {
+            input: {
+                file_name: `advice-slip-${input.patient.hn}-${processDate.value}.pdf`,
+                pdf_base64: pdfBase64,
+            },
+        });
+    } catch (e: unknown) {
+        recError.value = `เปิดไฟล์เพื่อพิมพ์ไม่สำเร็จ: ${String(e)}`;
     }
 }
 </script>
@@ -493,12 +242,12 @@ async function printSlip() {
                         >HN / เลขบัตรประชาชน / ชื่อ-นามสกุล</label
                     >
                     <div class="search-input-row">
-                        <div class="input-with-clear" style="flex: 1;">
+                        <div class="input-with-clear" style="flex: 1">
                             <input
                                 v-model="searchQuery"
                                 type="text"
                                 class="form-input bar-input"
-                                style="width: 100%;"
+                                style="width: 100%"
                                 placeholder="เช่น 0000001, 1234567890123, สมชาย ใจดี"
                                 @keydown.enter="doSearch"
                             />
@@ -619,7 +368,7 @@ async function printSlip() {
                     <button
                         class="btn btn-primary"
                         style="width: 100%"
-                        @click="printSlip"
+                        @click="openSlipForPrinting"
                         :disabled="selectedIcodes.size === 0"
                     >
                         <Printer :size="15" />

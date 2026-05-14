@@ -25,7 +25,7 @@ fn calculate_age(dob: &str, on_date: &str) -> i32 {
     if dob.is_empty() {
         return 0;
     }
-    
+
     let birth = match NaiveDate::parse_from_str(dob, "%Y-%m-%d") {
         Ok(d) => d,
         Err(_) => return 0,
@@ -35,7 +35,7 @@ fn calculate_age(dob: &str, on_date: &str) -> i32 {
         Ok(d) => d,
         Err(_) => return 0,
     };
-    
+
     let mut age = target.year() - birth.year();
     if (target.month(), target.day()) < (birth.month(), birth.day()) {
         age -= 1;
@@ -378,7 +378,8 @@ pub async fn get_recommendations(
         let freq_value: Option<i64> = row.get("freq_value");
         if let Some(ft) = &freq_type {
             if !ft.is_empty() {
-                let history = get_service_history(config.clone(), hn.clone(), icode.clone()).await?;
+                let history =
+                    get_service_history(config.clone(), hn.clone(), icode.clone()).await?;
                 if !passes_freq(ft, &freq_value, &history, &process_date) {
                     continue;
                 }
@@ -429,12 +430,16 @@ pub async fn search_patients_by_department(
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
              JOIN pttype pt ON pt.pttype = p.pttype
-             WHERE DATE(v.vstdate) = DATE(?) AND v.depcode IN ({})
+             WHERE DATE(v.vstdate) = DATE(?)
+               AND (v.main_dep IN ({}) OR v.cur_dep IN ({}))
              ORDER BY p.fname, p.lname
              LIMIT 500",
-            placeholders
+            placeholders, placeholders
         );
         let mut q = sqlx::query(&sql).bind(&process_date);
+        for code in &depcodes {
+            q = q.bind(code);
+        }
         for code in &depcodes {
             q = q.bind(code);
         }
@@ -500,12 +505,16 @@ pub async fn search_patients_with_recommendations(
              FROM ovst v
              JOIN patient p ON p.hn = v.hn
              JOIN pttype pt ON pt.pttype = p.pttype
-             WHERE DATE(v.vstdate) = DATE(?) AND v.depcode IN ({})
+             WHERE DATE(v.vstdate) = DATE(?)
+               AND (v.main_dep IN ({}) OR v.cur_dep IN ({}))
              ORDER BY v.vn DESC
              LIMIT 500",
-            placeholders
+            placeholders, placeholders
         );
         let mut q = sqlx::query(&sql).bind(&process_date);
+        for code in &depcodes {
+            q = q.bind(code);
+        }
         for code in &depcodes {
             q = q.bind(code);
         }
@@ -519,8 +528,11 @@ pub async fn search_patients_with_recommendations(
         return Ok(vec![]);
     }
 
-// 2. Get all HNs and their icodes for TODAY only (to skip if already received today)
-    let hns: Vec<String> = patient_rows.iter().map(|r| r.get::<String, _>("hn")).collect();
+    // 2. Get all HNs and their icodes for TODAY only (to skip if already received today)
+    let hns: Vec<String> = patient_rows
+        .iter()
+        .map(|r| r.get::<String, _>("hn"))
+        .collect();
     let hn_list = hns.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
     let today_icodes_sql = format!(
@@ -538,7 +550,8 @@ pub async fn search_patients_with_recommendations(
         .map_err(|e| e.to_string())?;
 
     // Group today's icodes by hn (for skipping)
-    let mut today_icodes_map: std::collections::HashMap<String, std::collections::HashSet<String>> = std::collections::HashMap::new();
+    let mut today_icodes_map: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
     for row in &today_rows {
         let hn: String = row.get("hn");
         let icode: String = row.get("icode");
@@ -546,13 +559,15 @@ pub async fn search_patients_with_recommendations(
     }
 
     // 3. Get ALL service history for ALL hns (for freq check) - single batch query
-    let mut all_history_map: std::collections::HashMap<String, Vec<ServiceHistoryRow>> = std::collections::HashMap::new();
-    
+    let mut all_history_map: std::collections::HashMap<String, Vec<ServiceHistoryRow>> =
+        std::collections::HashMap::new();
+
     // Get unique icodes from icode_config first
     let data_dir = app_handle.path().app_data_dir().expect("app data dir");
     let setting_db_path = format!("{}/setting.db", data_dir.to_string_lossy());
-    let sqlite_opts = SqliteConnectOptions::from_str(&format!("sqlite://{}?mode=ro", setting_db_path))
-        .map_err(|e| e.to_string())?;
+    let sqlite_opts =
+        SqliteConnectOptions::from_str(&format!("sqlite://{}?mode=ro", setting_db_path))
+            .map_err(|e| e.to_string())?;
     let sqlite_pool = SqlitePoolOptions::new()
         .max_connections(2)
         .connect_with(sqlite_opts)
@@ -578,20 +593,27 @@ pub async fn search_patients_with_recommendations(
         .map_err(|e| e.to_string())?;
 
     // Get all unique icodes from config
-    let all_icode_list: Vec<String> = icode_rows.iter().map(|r| r.get::<String, _>("icode")).collect();
-    
+    let all_icode_list: Vec<String> = icode_rows
+        .iter()
+        .map(|r| r.get::<String, _>("icode"))
+        .collect();
+
     // Batch query: get all service history for all patients for all these icodes
     if !all_icode_list.is_empty() && !hns.is_empty() {
-        let icode_placeholders = all_icode_list.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let icode_placeholders = all_icode_list
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
         let history_sql = format!(
-            "SELECT v.hn, o.icode, DATE_FORMAT(v.vstdate, '%Y-%m-%d') as vstdate 
-             FROM opitemrece o 
-             JOIN ovst v ON v.vn = o.vn 
-             WHERE v.hn IN ({}) AND o.icode IN ({}) 
+            "SELECT v.hn, o.icode, DATE_FORMAT(v.vstdate, '%Y-%m-%d') as vstdate
+             FROM opitemrece o
+             JOIN ovst v ON v.vn = o.vn
+             WHERE v.hn IN ({}) AND o.icode IN ({})
              ORDER BY v.hn, v.vstdate DESC",
             hn_list, icode_placeholders
         );
-        
+
         let mut history_q = sqlx::query(&history_sql);
         for hn in &hns {
             history_q = history_q.bind(hn);
@@ -599,12 +621,12 @@ pub async fn search_patients_with_recommendations(
         for icode in &all_icode_list {
             history_q = history_q.bind(icode);
         }
-        
+
         let history_rows = history_q
             .fetch_all(&mysql_pool_ref)
             .await
             .map_err(|e| e.to_string())?;
-        
+
         // Group by hn -> icode -> history
         for row in &history_rows {
             let hn: String = row.get("hn");
@@ -618,8 +640,10 @@ pub async fn search_patients_with_recommendations(
     }
 
     // Map: hipdata_code -> group id (เช่น "U" -> ["1","2"])
-    let mut pttype_group_ids_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    let mut group_id_to_alias: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut pttype_group_ids_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut group_id_to_alias: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for row in &pg_rows {
         let id: String = row.get::<i32, _>("id").to_string();
         let alias: String = row.get("alias");
@@ -655,7 +679,10 @@ pub async fn search_patients_with_recommendations(
         let vn: String = row.get("vn");
 
         let today_icodes = today_icodes_map.get(&hn).cloned().unwrap_or_default();
-        let pttype_group_ids = pttype_group_ids_map.get(&hipdata_code).cloned().unwrap_or_default();
+        let pttype_group_ids = pttype_group_ids_map
+            .get(&hipdata_code)
+            .cloned()
+            .unwrap_or_default();
 
         let mut recommendations: Vec<RecommendationItem> = Vec::new();
 
@@ -675,7 +702,7 @@ pub async fn search_patients_with_recommendations(
             let freq_type: Option<String> = icode_row.get("freq_type");
             let group_ids_str: Option<String> = icode_row.get("group_ids");
 
-// Age filter
+            // Age filter
             if let Some(min) = age_min {
                 if age < min {
                     continue;

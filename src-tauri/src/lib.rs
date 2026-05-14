@@ -53,6 +53,8 @@ pub fn run() {
             // Export / import
             commands::settings_io::export_settings,
             commands::settings_io::import_settings,
+            // Printing
+            commands::printing::open_temp_pdf_with_viewer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

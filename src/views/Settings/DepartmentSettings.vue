@@ -23,19 +23,23 @@ onMounted(async () => {
 async function searchDepartment() {
     if (!depcodeInput.value.trim()) return;
     if (!connStore.isConnected) {
-        fetchError.value = "ยังไม่ได้เชื่อมต่อฐานข้อมูล กรุณาตั้งค่าที่เมนู 'การเชื่อมต่อ'";
+        fetchError.value =
+            "ยังไม่ได้เชื่อมต่อฐานข้อมูล กรุณาตั้งค่าที่เมนู 'การเชื่อมต่อ'";
         return;
     }
     isFetching.value = true;
     fetchError.value = "";
     departmentName.value = "";
     try {
-        const name = await invoke<string | null>("search_department_by_code", {
+        const result = await invoke<{
+            depcode: string;
+            department: string;
+        } | null>("search_department_by_depcode", {
             config: connStore.config,
             depcode: depcodeInput.value.trim(),
         });
-        if (name) {
-            departmentName.value = name;
+        if (result) {
+            departmentName.value = result.department;
         } else {
             fetchError.value = `ไม่พบรหัสแผนก ${depcodeInput.value.trim()} ในฐานข้อมูล HOSxP`;
         }
@@ -157,7 +161,10 @@ async function handleRemove(id: number) {
             </div>
             <div class="card-body" style="padding: 0">
                 <div v-if="deptStore.items.length === 0" class="empty-state">
-                    <Building2 :size="32" style="color: var(--muted); margin-bottom: 8px" />
+                    <Building2
+                        :size="32"
+                        style="color: var(--muted); margin-bottom: 8px"
+                    />
                     <p>ยังไม่มีแผนกที่ตั้งค่า</p>
                 </div>
                 <table v-else class="table dept-table" style="font-size: 13px">

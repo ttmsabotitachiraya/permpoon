@@ -18,6 +18,8 @@ import {
 import type { PatientInfo } from "../types/patient";
 import type { RecommendationItem } from "../types/icode";
 
+import { createRecommendationSlipPdfBase64 } from "../utils/recommendationSlipPdf";
+
 interface PatientWithRecs {
     hn: string;
     fname: string;
@@ -40,8 +42,8 @@ const deptStore = useDepartmentStore();
 const getTodayDate = () => {
     const d = new Date();
     const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
 };
 const processDate = ref(getTodayDate());
@@ -66,8 +68,12 @@ function getPttypeAlias(p: PatientInfo) {
 }
 
 function hasRecommendations(hn: string): boolean {
-    const patient = patients.value.find(p => p.hn === hn);
-    return !!(patient && patient.recommendations && patient.recommendations.length > 0);
+    const patient = patients.value.find((p) => p.hn === hn);
+    return !!(
+        patient &&
+        patient.recommendations &&
+        patient.recommendations.length > 0
+    );
 }
 
 function getPttypeName(p: PatientInfo) {
@@ -148,7 +154,9 @@ async function doSearch() {
     selectedIcodes.value = new Set();
 
     try {
-        const depcodes = useDefaultDepartment.value ? [] : enabledDepcodes.value;
+        const depcodes = useDefaultDepartment.value
+            ? []
+            : enabledDepcodes.value;
         const results = await invoke<PatientWithRecs[]>(
             "search_patients_with_recommendations",
             {
@@ -158,7 +166,7 @@ async function doSearch() {
             },
         );
 
-        patients.value = results.map(p => ({
+        patients.value = results.map((p) => ({
             hn: p.hn,
             fname: p.fname,
             lname: p.lname,
@@ -227,285 +235,46 @@ function closeRecModal() {
     selectedPatient.value = null;
 }
 
-async function printSlip() {
-    if (selectedItems.value.length === 0 || !selectedPatient.value) return;
-    const p = selectedPatient.value!;
+function buildSlipInput() {
+    if (!selectedPatient.value || selectedItems.value.length === 0) return null;
+    const p = selectedPatient.value;
+    return {
+        patient: {
+            hn: p.hn,
+            fname: p.fname,
+            lname: p.lname,
+        },
+        items: selectedItems.value,
+        processDateText: formatDate(processDate.value),
+        pttypeText: getPttypeAlias(p),
+    };
+}
 
-    const tableRows = selectedItems.value
-        .map(
-            (item, i) => `
-        <tr>
-            <td class="td-num">${i + 1}</td>
-            <td class="td-service">${item.service_name}</td>
-            <td class="td-dept">${item.department || "-"}</td>
-            <td class="td-note"></td>
-        </tr>`,
-        )
-        .join("");
+async function openSlipForPrinting() {
+    const input = buildSlipInput();
+    if (!input) return false;
 
-    const bodyContent = `
-    <div class="slip-page">
-
-      <div class="slip-header">
-        <div class="slip-logo-wrap">
-          <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="plg1" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" style="stop-color:#f97316;stop-opacity:1"/>
-                <stop offset="100%" style="stop-color:#fdba74;stop-opacity:1"/>
-              </linearGradient>
-              <linearGradient id="plg2" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1"/>
-                <stop offset="100%" style="stop-color:#fff7ed;stop-opacity:1"/>
-              </linearGradient>
-            </defs>
-            <path d="M5 55 L50 72 L95 55 L50 38 Z" fill="url(#plg1)"/>
-            <path d="M5 55 L5 70 L50 87 L50 72 Z" fill="url(#plg1)"/>
-            <path d="M95 55 L95 70 L50 87 L50 72 Z" fill="url(#plg1)"/>
-            <path d="M5 20 L50 37 L95 20 L50 3 Z" fill="url(#plg2)"/>
-            <path d="M5 20 L5 35 L50 52 L50 37 Z" fill="url(#plg2)"/>
-            <path d="M95 20 L95 35 L50 52 L50 37 Z" fill="url(#plg2)"/>
-            <text x="50" y="98" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="#ea580c" font-weight="900" letter-spacing="2">P O O N</text>
-          </svg>
-          <div class="slip-brand">
-            <span class="slip-brand-name">PermPoon</span>
-            <span class="slip-brand-tagline">แนะนำบริการเพิ่มพูลรายได้</span>
-          </div>
-        </div>
-        <div class="slip-title-wrap">
-          <div class="slip-title">ใบแนะนำบริการ</div>
-        </div>
-      </div>
-
-      <div class="slip-divider"></div>
-
-      <div class="slip-section">
-        <div class="slip-section-label">ข้อมูลส่วนตัว</div>
-        <div class="slip-info-box">
-          <div class="slip-row">
-            <div class="slip-field half">
-              <span class="slip-lbl">HN</span>
-              <span class="slip-val mono">${p.hn}</span>
-            </div>
-            <div class="slip-field half">
-              <span class="slip-lbl">วันที่</span>
-              <span class="slip-val">${formatDate(processDate.value)}</span>
-            </div>
-          </div>
-          <div class="slip-field">
-            <span class="slip-lbl">ชื่อ-นามสกุล</span>
-            <span class="slip-val">${p.fname} ${p.lname}</span>
-          </div>
-          <div class="slip-field" style="margin-bottom:0">
-            <span class="slip-lbl">สิทธิการรักษา</span>
-            <span class="slip-val">${getPttypeAlias(p)}</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="slip-section">
-        <div class="slip-section-label">บริการที่แนะนำ</div>
-        <table class="slip-table">
-          <thead>
-            <tr>
-              <th class="th-num">ลำดับ</th>
-              <th class="th-service">บริการ</th>
-              <th class="th-dept">แผนก</th>
-              <th class="th-note">หมายเหตุ</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="slip-footer">
-        <div class="slip-footer-line"></div>
-        <p>กรุณานำใบนี้ไปรับบริการที่จุดให้บริการ</p>
-      </div>
-
-    </div>
-    `;
-
-    const printCss = `
-      @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
-
-      @page { size: A5 portrait; margin: 10mm 12mm; }
-
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-      body {
-        font-family: 'Sarabun', 'TH SarabunNew', Arial, sans-serif;
-        font-size: 14pt;
-        line-height: 1.5;
-        color: #1e293b;
-        background: #ffffff;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-      }
-
-      #__print_slip__ { display: none; }
-
-      @media print {
-        #app { display: none !important; }
-        #__print_slip__ { display: block !important; }
-      }
-
-      .slip-page { width: 100%; }
-
-      .slip-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 8pt;
-      }
-      .slip-logo-wrap {
-        display: flex;
-        align-items: center;
-        gap: 8pt;
-      }
-      .slip-brand { display: flex; flex-direction: column; line-height: 1.2; }
-      .slip-brand-name {
-        font-size: 20pt;
-        font-weight: 700;
-        color: #ea580c;
-        letter-spacing: -0.3pt;
-      }
-      .slip-brand-tagline {
-        font-size: 9pt;
-        color: #94a3b8;
-        margin-top: 1pt;
-      }
-      .slip-title-wrap { text-align: right; }
-      .slip-title {
-        display: inline-block;
-        font-size: 16pt;
-        font-weight: 700;
-        color: #ea580c;
-        background: #fff7ed;
-        border: 1.5pt solid #f97316;
-        border-radius: 6pt;
-        padding: 4pt 12pt;
-      }
-
-      .slip-divider {
-        height: 2.5pt;
-        background: linear-gradient(90deg, #f97316 0%, #fbbf24 60%, #fff7ed 100%);
-        border-radius: 2pt;
-        margin: 8pt 0 12pt;
-      }
-
-      .slip-section { margin-bottom: 12pt; }
-      .slip-section-label {
-        font-size: 12pt;
-        font-weight: 700;
-        color: #ea580c;
-        text-transform: uppercase;
-        letter-spacing: 0.4pt;
-        border-left: 3pt solid #f97316;
-        padding-left: 6pt;
-        margin-bottom: 6pt;
-      }
-
-      .slip-info-box {
-        border: 1pt solid #e2e8f0;
-        border-radius: 6pt;
-        padding: 8pt 12pt;
-        background: #fafbfc;
-      }
-      .slip-row {
-        display: flex;
-        gap: 16pt;
-        margin-bottom: 6pt;
-      }
-      .slip-field {
-        display: flex;
-        align-items: baseline;
-        gap: 6pt;
-        margin-bottom: 6pt;
-      }
-      .slip-field.half { flex: 1; margin-bottom: 0; }
-      .slip-lbl {
-        font-size: 11pt;
-        font-weight: 600;
-        color: #64748b;
-        white-space: nowrap;
-      }
-      .slip-lbl::after { content: ':'; }
-      .slip-val {
-        font-size: 13pt;
-        font-weight: 500;
-        color: #0f172a;
-      }
-      .mono {
-        font-family: 'Courier New', monospace;
-        font-weight: 700;
-        color: #ea580c;
-        font-size: 14pt;
-      }
-
-      .slip-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12pt;
-      }
-      .slip-table thead tr {
-        background: #fff7ed;
-      }
-      .slip-table th {
-        padding: 6pt 8pt;
-        font-size: 12pt;
-        font-weight: 700;
-        color: #c2410c;
-        text-align: left;
-        border: 1pt solid #fed7aa;
-      }
-      .slip-table td {
-        padding: 6pt 8pt;
-        border: 1pt solid #e2e8f0;
-        color: #1e293b;
-        vertical-align: middle;
-      }
-      .slip-table tbody tr:nth-child(even) td { background: #fff7ed; }
-      .th-num, .td-num  { width: 30pt; text-align: center; }
-      .th-dept, .td-dept { width: 80pt; }
-      .th-note, .td-note { width: 60pt; }
-      .th-service, .td-service { }
-
-      .slip-footer { margin-top: 16pt; text-align: center; }
-      .slip-footer-line {
-        height: 1pt;
-        background: #e2e8f0;
-        margin-bottom: 6pt;
-      }
-      .slip-footer p { font-size: 10pt; color: #94a3b8; }
-    `;
-
-    const printContainer = document.createElement("div");
-    printContainer.id = "__print_slip__";
-    printContainer.innerHTML = bodyContent;
-
-    const printStyleEl = document.createElement("style");
-    printStyleEl.id = "__print_style__";
-    printStyleEl.innerHTML = printCss;
-
-    document.head.appendChild(printStyleEl);
-    document.body.appendChild(printContainer);
-    await new Promise<void>((r) => setTimeout(r, 80));
+    recError.value = "";
     try {
-        await invoke("plugin:webview|print");
-    } finally {
-        setTimeout(() => {
-            printStyleEl.remove();
-            printContainer.remove();
-        }, 3000);
+        const pdfBase64 = await createRecommendationSlipPdfBase64(input);
+        await invoke("open_temp_pdf_with_viewer", {
+            input: {
+                file_name: `advice-slip-${input.patient.hn}-${processDate.value}.pdf`,
+                pdf_base64: pdfBase64,
+            },
+        });
+        return true;
+    } catch (e: unknown) {
+        recError.value = `เปิดไฟล์เพื่อพิมพ์ไม่สำเร็จ: ${String(e)}`;
+        return false;
     }
 }
 
 async function handlePrintFromModal() {
-    await printSlip();
-    closeRecModal();
+    const opened = await openSlipForPrinting();
+    if (opened) {
+        closeRecModal();
+    }
 }
 
 function clearPatientQuery() {
@@ -537,9 +306,18 @@ function clearPatientQuery() {
                     <Search :size="15" />
                     {{ isSearching ? "กำลังค้นหา..." : "ค้นหา" }}
                 </button>
-                <div style="margin-left: auto; display: flex; gap: 8px; align-items: flex-end;">
+                <div
+                    style="
+                        margin-left: auto;
+                        display: flex;
+                        gap: 8px;
+                        align-items: flex-end;
+                    "
+                >
                     <div class="search-query-wrap">
-                        <label class="bar-label">ค้นหาผู้ป่วย (HN / CID / ชื่อ)</label>
+                        <label class="bar-label"
+                            >ค้นหาผู้ป่วย (HN / CID / ชื่อ)</label
+                        >
                         <div class="input-with-clear">
                             <input
                                 v-model="patientQuery"
@@ -570,7 +348,12 @@ function clearPatientQuery() {
                             {{ enabledDeptNames }}
                         </span>
                         <span v-else>
-                            {{ enabledDeptNamesFirst2 }}{{ enabledDepcodes.length - 2 > 0 ? ', +' + (enabledDepcodes.length - 2) : '' }}
+                            {{ enabledDeptNamesFirst2
+                            }}{{
+                                enabledDepcodes.length - 2 > 0
+                                    ? ", +" + (enabledDepcodes.length - 2)
+                                    : ""
+                            }}
                         </span>
                     </div>
                 </div>
@@ -609,7 +392,9 @@ function clearPatientQuery() {
                             <td>{{ p.age }} ปี</td>
                             <td>{{ formatSex(p.sex) }}</td>
                             <td :title="getPttypeTooltip(p)">
-                                <span class="pttype-name">{{ getPttypeName(p) }}</span>
+                                <span class="pttype-name">{{
+                                    getPttypeName(p)
+                                }}</span>
                             </td>
                             <td>
                                 <button
@@ -617,7 +402,9 @@ function clearPatientQuery() {
                                     class="btn-recommend btn-sm"
                                     @click="openRecommendations(p)"
                                 >
-                                    แนะนำบริการ ({{ p.recommendations?.length || 0 }})
+                                    แนะนำบริการ ({{
+                                        p.recommendations?.length || 0
+                                    }})
                                 </button>
                                 <button
                                     v-else
@@ -650,9 +437,7 @@ function clearPatientQuery() {
         >
             <div class="modal rec-modal">
                 <div class="modal-header">
-                    <div
-                        style="display: flex; align-items: center; gap: 8px"
-                    >
+                    <div style="display: flex; align-items: center; gap: 8px">
                         <CheckSquare
                             :size="16"
                             style="color: var(--brand-orange)"
@@ -686,10 +471,7 @@ function clearPatientQuery() {
                         </div>
                     </div>
 
-                    <div
-                        v-if="isLoadingRec"
-                        class="loading-state"
-                    >
+                    <div v-if="isLoadingRec" class="loading-state">
                         <div class="spinner"></div>
                         <span>กำลังโหลดรายการแนะนำ...</span>
                     </div>
@@ -782,8 +564,9 @@ function clearPatientQuery() {
                         :disabled="selectedIcodes.size === 0"
                     >
                         <Printer :size="15" />
-                        พิมพ์สลิป ({{ selectedIcodes.size }} รายการ)
+                        พิมพ์สลิปบริการ ({{ selectedIcodes.size }} รายการ)
                     </button>
+
                     <button class="btn btn-ghost" @click="closeRecModal">
                         ปิด
                     </button>
@@ -1102,7 +885,7 @@ function clearPatientQuery() {
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    box-shadow: 0 2px 6px rgba(249,115,22,0.35);
+    box-shadow: 0 2px 6px rgba(249, 115, 22, 0.35);
     transition: all 0.15s ease;
     white-space: nowrap;
 }

@@ -140,7 +140,7 @@ pub async fn init_sqlite(app: &tauri::AppHandle) -> Result<(), String> {
     .await
     .map_err(|e| e.to_string())?;
 
-ensure_column(&pool, "icode_config", "department", "TEXT").await?;
+    ensure_column(&pool, "icode_config", "department", "TEXT").await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS department_config (
@@ -156,7 +156,7 @@ ensure_column(&pool, "icode_config", "department", "TEXT").await?;
     .await
     .map_err(|e| e.to_string())?;
 
-// ── Credential migration: app_config → db.json ────────────────────────────
+    // ── Credential migration: app_config → db.json ────────────────────────────
     let db_json = super::db_config::db_json_path(app);
     if !db_json.exists() {
         migrate_credentials_to_db_json(app, &pool).await;
@@ -597,7 +597,9 @@ pub async fn remove_department_config(app: tauri::AppHandle, id: i64) -> Result<
 
 /// Returns all department configs.
 #[tauri::command]
-pub async fn get_all_department_configs(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub async fn get_all_department_configs(
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     let pool = get_pool(&get_setting_db_path(&app)).await?;
     let rows = sqlx::query(
         "SELECT id, depcode, department, is_enabled
